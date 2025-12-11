@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Fashion Stylist</title>
+  <meta name="description" content="Upload a fashion item and get styling inspiration images pulled from Google Images." />
+  <style>
+    :root {
+      --bg: #f7f7fb;
+      --card: #ffffff;
+      --accent: #6c5ce7;
+      --text: #1f1f29;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --success: #10b981;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: var(--text); background: linear-gradient(180deg, #fafafe 0%, var(--bg) 100%); }
+    header { padding: 24px; text-align: center; background: var(--card); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+    header h1 { margin: 0; font-size: 1.8rem; }
+    header p { margin: 6px 0 0; color: var(--muted); }
+
+    main { max-width: 1100px; margin: 32px auto; padding: 0 16px 48px; }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+    @media (min-width: 900px) { .grid { grid-template-columns: 2fr 1fr; } }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); }
+    .section-title { font-weight: 600; margin: 4px 0 16px; }
+
+    .uploader { border: 2px dashed var(--border); border-radius: 12px; padding: 24px; text-align: center; background: #fcfcff; }
+    .uploader.dragover { border-color: var(--accent); background: #f1efff; }
+    .uploader input[type="file"] { display: none; }
+    .btn { background: var(--accent); color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    .btn.secondary { background: #e9eefc; color: #3e4c9f; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .preview { margin-top: 16px; display: grid; grid-template-columns: 120px 1fr; gap: 16px; align-items: start; }
+    .preview img { width: 120px; height: 120px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); }
+    .meta { font-size: 14px; color: var(--muted); }
+
+    .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+    label { font-size: 14px; color: var(--muted); margin-bottom: 6px; display: block; }
+    select, input[type="text"] { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: white; font-size: 14px; }
+
+    .status { margin-top: 12px; font-size: 14px; color: var(--muted); }
+
+    .suggestions { display: grid; gap: 12px; margin-top: 12px; }
+    .suggestion { border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: #fbfbff; }
+    .suggestion h3 { margin: 0 0 6px; font-size: 16px; }
+    .suggestion p { margin: 0; color: #374151; line-height: 1.5; }
+    .suggestion img { width: 100%; border-radius: 8px; margin-top: 8px; }
+
+    footer { text-align: center; color: var(--muted); font-size: 13px; padding: 24px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI Fashion Stylist</h1>
+    <p>Upload a fashion item and get relevant outfit inspiration pulled from Google Images.</p>
+  </header>
+
+  <main>
+    <div class="grid">
+      <!-- Left: upload + controls -->
+      <section class="card">
+        <div class="section-title">Upload your item</div>
+
+        <div id="dropzone" class="uploader">
+          <p>Drag & drop an image here, or</p>
+          <button id="pickBtn" class="btn">Choose image</button>
+          <input id="fileInput" type="file" accept="image/*" />
+        </div>
+
+        <div id="preview" class="preview" style="display:none;">
+          <img id="previewImg" alt="Item preview" />
+          <div>
+            <div class="meta" id="fileMeta"></div>
+
+            <div class="controls">
+              <div>
+                <label for="itemType">Item type</label>
+                <select id="itemType">
+                  <option value="dress">Dress</option>
+                  <option value="accessory">Jewelry / Accessory</option>
+                  <option value="bag">Bag</option>
+                  <option value="shoes">Shoes</option>
+                </select>
+              </div>
+              <div>
+                <label for="styleContext">Style context (optional)</label>
+                <input id="styleContext" type="text" placeholder="e.g., Indian wedding, office casual, date night" />
+              </div>
+            </div>
+
+            <div class="status" id="status">Ready to analyze.</div>
+
+            <div style="margin-top: 12px;">
+              <button id="analyzeBtn" class="btn">Get styling images</button>
+              <button id="resetBtn" class="btn secondary">Reset</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right: inspiration -->
+      <aside class="card">
+        <div class="section-title">Inspiration</div>
+        <div id="suggestions" class="suggestions">
+          <div class="suggestion">
+            <h3>How it works</h3>
+            <p>Upload an item, select its type and context, then we fetch relevant inspiration images.</p>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <footer>
+    <p>&copy; 2025 AI Fashion Stylist</p>
+  </footer>
+
+  <script>
+    // ====== CONFIG: Insert your Google API Key & Search Engine ID ======
+    const GOOGLE_API_KEY = "AIzaSyChZ-SuKXW-L8F-2xCIx6Pg4Z1-TwMXPMQ";
+    const GOOGLE_CX = "9277fe76903604ce2";
+
+    // ====== Elements ======
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const pickBtn = document.getElementById('pickBtn');
+    const preview = document.getElementById('preview');
+    const previewImg = document.getElementById('previewImg');
+    const fileMeta = document.getElementById('fileMeta');
+    const itemType = document.getElementById('itemType');
+    const styleContext = document.getElementById('styleContext');
+    const statusEl = document.getElementById('status');
+    const suggestionsEl = document.getElementById('suggestions');
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    function setStatus(message, type = 'info') {
+      statusEl.textContent = message;
+      statusEl.style.color = type === 'error' ? 'var(--danger)' :
+                             type === 'success' ? 'var(--success)' : 'var(--muted)';
+    }
+
+    // ====== File pick & drag-drop ======
+    pickBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (file) handleFile(file);
+    });
+
+    ['dragenter','dragover'].forEach(evt => {
+      dropzone.addEventListener(evt, (e) => {
+        e.preventDefault(); e.stopPropagation();
+        dropzone.classList.add('dragover');
+      });
+    });
+    ['dragleave','drop'].forEach(evt => {
+      dropzone.addEventListener(evt, (e) => {
+        e.preventDefault(); e.stopPropagation();
+        dropzone.classList.remove('dragover');
+      });
+    });
+    dropzone.addEventListener('drop', (e) => {
+      const file = e.dataTransfer.files?.[0];
+      if (file) handleFile(file);
+    });
+
+    function handleFile(file) {
+      if (!file.type.startsWith('image/')) {
+        setStatus('Please upload an image file (jpg, png, etc.).', 'error');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        previewImg.src = e.target.result;
+        preview.style.display = 'grid';
+        fileMeta.textContent = `${file.name} • ${(file.size/1024).toFixed(1)} KB`;
+        setStatus('Ready to analyze.');
+        clearSuggestions();
+        addInfoCard('Tip', 'Choose the correct item type and add context for better results.');
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // ====== Suggestions helpers ======
+    function clearSuggestions() { suggestionsEl.innerHTML = ''; }
+    function addSuggestion(title, html) {
+      const div = document.createElement('div');
+      div.className = 'suggestion';
+      div.innerHTML = `<h3>${title}</h3>${html}`;
+      suggestionsEl.appendChild(div);
+    }
+    function addInfoCard(title, text) {
+      addSuggestion(title, `<p>${text}</p>`);
+    }
+
+    // ====== Query builder (reduce randomness with stronger keywords) ======
+    function buildQuery(type, context) {
+      const map = {
+        dress: 'dress outfit styling',
+        accessory: 'jewelry accessory styling',
+        bag: 'bag outfit styling',
+        shoes: 'shoes outfit styling'
+      };
+      const base = map[type] || 'fashion styling';
+      const ctx = (context || '').trim();
+      const keywords = [base];
+      if (ctx) keywords.push(ctx);
+      keywords.push('lookbook editorial cohesive aesthetic');
+      return keywords.join(' ');
+    }
+
+    // ====== Fetch images from Google Custom Search (Image) ======
+    async function fetchGoogleImages(query) {
+      if (!GOOGLE_API_KEY || GOOGLE_API_KEY === 'YOUR_GOOGLE_API_KEY' || !GOOGLE_CX || GOOGLE_CX === 'YOUR_SEARCH_ENGINE_ID') {
+        setStatus('Add your Google API Key and Search Engine ID in the code.', 'error');
+        addInfoCard('Setup needed', 'Open index.html, find GOOGLE_API_KEY and GOOGLE_CX, and paste your values.');
+        return;
+      }
+      try {
+        const url = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(query)}&cx=${GOOGLE_CX}&searchType=image&safe=active&num=8&key=${GOOGLE_API_KEY}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Google API error: ${res.status}`);
+        const data = await res.json();
+
+        if (!data.items || data.items.length === 0) {
+          addInfoCard('No results', 'Refine the context (e.g., “Indian wedding pastel” or “office minimal”).');
+          return;
+        }
+
+        data.items.forEach(item => {
+          const title = item.title || 'Fashion inspiration';
+          const link = item.link;
+          const ctxLink = item.image?.contextLink;
+          addSuggestion('Inspiration', `
+            <img src="${link}" alt="${title}" />
+            <p>${title}</p>
+            <p style="font-size:12px; color: var(--muted);">Source: ${ctxLink ? `<a href="${ctxLink}" target="_blank" rel="noopener">Page</a>` : 'Google Images'}</p>
+          `);
+        });
+      } catch (err) {
+        setStatus('Failed to fetch images. Check your key, cx, or network.', 'error');
+        addInfoCard('Troubleshooting', 'Confirm your API key, CSE ID, internet connection, and try a simpler query.');
+      }
+    }
+
+    // ====== Optional: quick brightness hint for coherence ======
+    async function analyzeImageBrightness(imgEl) {
+      return new Promise((resolve) => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const size = 32;
+        canvas.width = size; canvas.height = size;
+        ctx.drawImage(imgEl, 0, 0, size, size);
+        const data = ctx.getImageData(0, 0, size, size).data;
+
+        let total = 0, count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i], g = data[i+1], b = data[i+2];
+          const brightness = (r * 0.2126 + g * 0.7152 + b * 0.0722);
+          total += brightness; count++;
+        }
+        const avg = total / count;
+        if (avg > 180) resolve('Light-toned item: pair with mid/dark pieces for contrast.');
+        else if (avg < 80) resolve('Dark-toned item: add lighter layers or metallic accents.');
+        else resolve('Mid-tone item: use adjacent hues or subtle contrasts.');
+      });
+    }
+
+    // ====== Analyze button ======
+    analyzeBtn.addEventListener('click', async () => {
+      clearSuggestions();
+
+      if (!previewImg.src) {
+        setStatus('Please upload an image first.', 'error');
+        addInfoCard('Upload needed', 'Choose an image of your fashion item.');
+        return;
+      }
+
+      setStatus('Analyzing…');
+      const type = itemType.value;
+      const context = styleContext.value;
+      const query = buildQuery(type, context);
+
+      try {
+        const hint = await analyzeImageBrightness(previewImg);
+        addInfoCard('Color harmony', hint);
+      } catch {}
+
+      await fetchGoogleImages(query);
+      setStatus('Suggestions generated.', 'success');
+    });
+
+    // ====== Reset ======
+    resetBtn.addEventListener('click', () => {
+      fileInput.value = '';
+      previewImg.src = '';
+      preview.style.display = 'none';
+      setStatus('Ready to analyze.');
+      clearSuggestions();
+      addInfoCard('How it works', 'Upload a fashion item to get styling inspiration.');
+    });
+  </script>
+</body>
+</html>
